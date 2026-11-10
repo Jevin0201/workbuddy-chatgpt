@@ -1,0 +1,20 @@
+{
+  "name": "workbuddy-chatgpt",
+  "version": "0.4.2",
+  "private": true,
+  "type": "module",
+  "description": "Standalone ChatGPT account connector for WorkBuddy",
+  "scripts": {
+    "start": "node service.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "undici": "7.16.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.65.0"
+  }
+}

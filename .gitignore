@@ -1,0 +1,16 @@
+*
+!.gitignore
+!README.md
+!LICENSE
+!THIRD_PARTY.md
+!docs/
+!docs/workbuddy-models.png
+!downloads/
+!downloads/WorkBuddy-ChatGPT-Setup-0.4.2-preview.exe
+!workbuddy-chatgpt/
+!workbuddy-chatgpt/**
+workbuddy-chatgpt/node_modules/
+workbuddy-chatgpt/settings.json
+workbuddy-chatgpt/*.log
+workbuddy-chatgpt/.bridge-key
+workbuddy-chatgpt/*.dpapi
