@@ -98,7 +98,12 @@ export function createOfficialApi({ auth, fetchImpl = globalThis.fetch, now = Da
   async function accessToken(signal) {
     checkAbort(signal);
     let token;
-    try { token = await auth.accessToken(signal); } catch { checkAbort(signal); throw failure('OpenAI sign-in is required', 401, 'authentication_required'); }
+    try { token = await auth.accessToken(signal); }
+    catch (error) {
+      checkAbort(signal);
+      if (error instanceof BridgeError && ['AUTH_GRANT_INVALID', 'OPENAI_NETWORK_TIMEOUT', 'OPENAI_NETWORK_FAILED', 'transport_upstream_error', 'AUTH_REFRESH_FAILED'].includes(error.code)) throw error;
+      throw failure('请打开 WorkBuddy 设置 → 模型 → 登录ChatGPT，完成登录后重试。', 401, 'authentication_required');
+    }
     checkAbort(signal);
     if (!cleanString(token)) throw failure('OpenAI sign-in is required', 401, 'authentication_required');
     return token;

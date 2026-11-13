@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = path.dirname(fileURLToPath(import.meta.url));
-const target = path.join(root, '..', 'outputs', 'WorkBuddy-ChatGPT-0.4.2-preview');
+const target = path.join(root, '..', 'outputs', 'WorkBuddy-ChatGPT-0.4.3-preview');
 fs.mkdirSync(target, { recursive: true });
 for (const name of fs.readdirSync(root)) {
   if (/\.(js|mjs|ps1|cmd|md|json)$/.test(name) && !['build.mjs','settings.json'].includes(name)) {

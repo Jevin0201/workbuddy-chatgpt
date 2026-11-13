@@ -10,8 +10,8 @@ using System.Threading.Tasks;
 
 [assembly: AssemblyTitle("WorkBuddy ChatGPT Setup")]
 [assembly: AssemblyDescription("WorkBuddy ChatGPT installer")]
-[assembly: AssemblyVersion("0.4.2.0")]
-[assembly: AssemblyFileVersion("0.4.2.0")]
+[assembly: AssemblyVersion("0.4.3.0")]
+[assembly: AssemblyFileVersion("0.4.3.0")]
 class Setup {
     const string PayloadHash = "PAYLOAD_SHA256";
     [STAThread]
@@ -54,7 +54,7 @@ class Setup {
                     using (Stream source = entry.Open()) using (Stream file = File.Create(target)) source.CopyTo(file);
                 }
             }
-            string root = Path.Combine(temp, "WorkBuddy-ChatGPT-0.4.2-preview");
+            string root = Path.Combine(temp, "WorkBuddy-ChatGPT-0.4.3-preview");
             foreach (string file in new [] { "node.exe", "service.js", "install.ps1", "installer-entry.ps1", "uninstall.ps1", "node_modules/undici/package.json" }) if (!File.Exists(Path.Combine(root, file))) throw new Exception("安装数据不完整：" + file);
             if (verify) {
                 var check = new ProcessStartInfo(Path.Combine(root, "node.exe"), "--version") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };

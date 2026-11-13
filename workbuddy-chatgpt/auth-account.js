@@ -16,6 +16,7 @@ function grant(record) {
 }
 function sanitized(error) {
   const messages = {
+    AUTH_GRANT_INVALID: 'ChatGPT 登录已失效，请打开 WorkBuddy 设置 → 模型 → 登录ChatGPT，重新登录后重试。',
     transport_upstream_error: '\u540e\u53f0\u8fde\u63a5 OpenAI \u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u672c\u673a\u4ee3\u7406\u540e\u91cd\u8bd5\u3002',
     AUTH_DENIED: '\u5df2\u53d6\u6d88 ChatGPT \u6388\u6743\uff0c\u53ef\u91cd\u65b0\u767b\u5f55\u3002',
     OPENAI_NETWORK_TIMEOUT: '\u8fde\u63a5 OpenAI \u8d85\u65f6\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc\u6216\u4ee3\u7406\u540e\u91cd\u8bd5\u3002',
@@ -44,9 +45,10 @@ export function createAccountAuth(ctx, { oauth, now = Date.now } = {}) {
   let closed = false;
   let state = 'idle';
   let error = null;
+  let requiresLogin = false;
 
   async function status() {
-    const configured = !!grant(await credentials.readRecord(ACCOUNT));
+    const configured = !requiresLogin && !!grant(await credentials.readRecord(ACCOUNT));
     return {
       configured,
       state: state === 'idle' && configured ? 'authorized' : state,
@@ -124,6 +126,7 @@ export function createAccountAuth(ctx, { oauth, now = Date.now } = {}) {
         return { ...current, kind: 'grant', payload };
       });
       state = 'authorized';
+      requiresLogin = false;
     } catch (cause) {
       state = signal.aborted ? (attempt.timedOut ? 'failed' : 'cancelled') : 'failed';
       error = signal.aborted ? (attempt.timedOut ? { code: 'AUTH_TIMEOUT', message: '\u767b\u5f55\u5df2\u8d85\u65f6\uff0c\u8bf7\u91cd\u8bd5\u3002' } : null) : sanitized(cause);
@@ -191,6 +194,7 @@ export function createAccountAuth(ctx, { oauth, now = Date.now } = {}) {
     return status();
   }
   async function accessToken(signal) {
+    if (requiresLogin) throw fail(401, 'AUTH_GRANT_INVALID', sanitized({ code: 'AUTH_GRANT_INVALID' }).message);
     if (closed) throw fail(410, 'AUTH_CLOSED', 'Account authorization closed');
     signal?.throwIfAborted();
     const initial = grant(await credentials.readRecord(ACCOUNT));
@@ -213,6 +217,11 @@ export function createAccountAuth(ctx, { oauth, now = Date.now } = {}) {
     } catch (cause) {
       if (signal?.aborted) throw signal.reason;
       const detail = sanitized(cause);
+      if (detail.code === 'AUTH_GRANT_INVALID') {
+        requiresLogin = true;
+        state = 'failed';
+        error = detail;
+      }
       if (detail.code !== 'AUTH_FAILED') throw fail(['OPENAI_NETWORK_TIMEOUT', 'OPENAI_NETWORK_FAILED', 'transport_upstream_error'].includes(detail.code) || /^AUTH_TOKEN_HTTP_5\d{2}$/.test(detail.code) ? 502 : 401, detail.code, detail.message);
       throw fail(401, 'AUTH_REFRESH_FAILED', '\u767b\u5f55\u5df2\u8fc7\u671f\uff0c\u8bf7\u91cd\u65b0\u767b\u5f55 ChatGPT');
     }

@@ -51,7 +51,7 @@ test('standalone service starts with no DSH and restricts inference to its beare
   const service = await startService({ directory, port: 51389 });
   try {
     const base = `http://127.0.0.1:${service.port}`;
-    assert.equal((await (await fetch(base + '/health')).json()).version, '0.4.2');
+    assert.equal((await (await fetch(base + '/health')).json()).version, '0.4.3');
     assert.equal((await fetch(base + '/v1/models')).status, 401);
     const connected = await fetch(base + '/bridge/connect', { method: 'POST', headers: { Origin: base, 'Content-Type': 'application/json', 'X-Bridge-Desktop': '1' }, body: '{}' });
     assert.equal(connected.status, 200);

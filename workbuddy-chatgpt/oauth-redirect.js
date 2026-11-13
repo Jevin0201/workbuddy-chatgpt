@@ -22,6 +22,27 @@ const stageError = code => Object.assign(new Error(code), { code });
 const NETWORK_CODES = new Set(['OPENAI_NETWORK_TIMEOUT', 'OPENAI_NETWORK_FAILED', 'transport_upstream_error']);
 async function tokenJSON(response) {
   if (!response.ok) {
+    if (response.status === 400 || response.status === 401) {
+      // Inspect only a bounded body and expose a fixed code, never provider text.
+      const reader = response.body?.getReader();
+      if (reader) {
+        const parts = []; let size = 0;
+        try {
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            size += value.byteLength;
+            if (size > 16384) break;
+            parts.push(Buffer.from(value));
+          }
+          if (size <= 16384) {
+            let body;
+            try { body = JSON.parse(Buffer.concat(parts).toString('utf8')); } catch {}
+            if (body?.error === 'invalid_grant' || body?.error?.code === 'invalid_grant') throw stageError('AUTH_GRANT_INVALID');
+          }
+        } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+      }
+    }
     await response.body?.cancel().catch(() => {});
     const status = Number.isInteger(response.status) && response.status >= 400 && response.status <= 599 ? String(response.status) : 'FAILED';
     throw stageError(`AUTH_TOKEN_HTTP_${status}`);
@@ -60,7 +81,7 @@ async function exchange(fetchImpl, body, signal) {
     return await tokenJSON(response);
   } catch (error) {
     if (signal?.aborted) throw signal.reason;
-    if (NETWORK_CODES.has(error?.code) || /^AUTH_TOKEN_HTTP_(?:[45]\d{2}|FAILED)$/.test(error?.code) || error?.code === 'AUTH_GRANT_SCHEMA') throw error;
+    if (NETWORK_CODES.has(error?.code) || /^AUTH_TOKEN_HTTP_(?:[45]\d{2}|FAILED)$/.test(error?.code) || ['AUTH_GRANT_SCHEMA', 'AUTH_GRANT_INVALID'].includes(error?.code)) throw error;
     throw stageError(deadline.aborted ? 'OPENAI_NETWORK_TIMEOUT' : 'OPENAI_NETWORK_FAILED');
   }
 }

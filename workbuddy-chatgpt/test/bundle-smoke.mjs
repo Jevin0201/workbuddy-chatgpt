@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-const root = fileURLToPath(new URL('../../outputs/WorkBuddy-ChatGPT-0.4.2-preview/', import.meta.url));
+const root = fileURLToPath(new URL('../../outputs/WorkBuddy-ChatGPT-0.4.3-preview/', import.meta.url));
 const directory = await mkdtemp(join(tmpdir(), 'wb-package-smoke-'));
 let child;
 try {
@@ -18,7 +18,7 @@ try {
     if (child.exitCode !== null) throw new Error('Bundled service exited: ' + errors);
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  if (health?.version !== '0.4.2') throw new Error('Bundled service did not become healthy');
+  if (health?.version !== '0.4.3') throw new Error('Bundled service did not become healthy');
   console.log(JSON.stringify({ bundledRuntime: true, unrelatedWorkingDirectory: true, dshRequired: false, health }));
 } finally {
   if (child && child.exitCode === null) { const closed = new Promise(resolve => child.once('close', resolve)); child.kill(); await closed; }
