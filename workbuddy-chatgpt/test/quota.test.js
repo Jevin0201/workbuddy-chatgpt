@@ -68,6 +68,24 @@ test('quota chip appears at sidebar footer only for connector models and expands
     assert.equal(await widget.isVisible(), false);
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('workbuddy-chatgpt-model', { detail: 'custom-local:openai:gpt-fixture:default' })));
     await widget.waitFor({ state: 'visible' });
+    const frame = page.frameLocator('#workbuddy-chatgpt-quota');
+    await frame.locator('#segments .fill').waitFor();
+    assert.equal(await frame.locator('#segments .fill').count(), 1);
+    const singleWindowUsage = api.usage;
+    api.usage = async () => {
+      const data = await singleWindowUsage();
+      return { ...data, planType: 'plus', windows: [...data.windows, { name: 'Codex secondary', remainingPercent: 60, windowSeconds: 604800 }] };
+    };
+    await frame.getByRole('button', { name: '额度 · 75%' }).click();
+    await frame.getByRole('button', { name: '额度 · 60%' }).waitFor();
+    assert.equal(await frame.locator('#segments .fill').count(), 2);
+    assert.equal(await frame.locator('#segments .fill').nth(0).getAttribute('stroke-dashoffset'), '25');
+    assert.equal(await frame.locator('#segments .fill').nth(1).getAttribute('stroke-dashoffset'), '40');
+    await frame.getByText('额度来源：你的 Plus 套餐').waitFor();
+    api.usage = singleWindowUsage;
+    await frame.getByRole('button', { name: '刷新额度' }).click();
+    await frame.getByRole('button', { name: '额度 · 75%' }).waitFor();
+    await frame.getByRole('button', { name: '额度 · 75%' }).click();
     await page.context().clearCookies();
     const chip = page.frameLocator('#workbuddy-chatgpt-quota').getByRole('button', { name: '额度 · 75%' });
     await chip.click();
@@ -80,8 +98,8 @@ test('quota chip appears at sidebar footer only for connector models and expands
     const unavailableChip = page.frameLocator('#workbuddy-chatgpt-quota').getByRole('button', { name: '额度 · —' });
     await unavailableChip.waitFor();
     const dimensions = await unavailableChip.evaluate(node => ({ height: node.offsetHeight, width: node.offsetWidth, scroll: node.scrollWidth, client: node.clientWidth, nowrap: getComputedStyle(node).whiteSpace }));
-    assert.equal(dimensions.height, 28);
-    assert.equal(dimensions.width, 78);
+    assert.equal(dimensions.height, 32);
+    assert.equal(dimensions.width, 32);
     assert.equal(dimensions.nowrap, 'nowrap');
     assert.ok(dimensions.scroll <= dimensions.client);
     await unavailableChip.click();

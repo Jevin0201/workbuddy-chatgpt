@@ -79,7 +79,7 @@ export function createServerBridge({ ctx, auth, api, engine, token, port = 51380
         }
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(page); return;
       }
-      if (req.method === 'GET' && path === '/health') { json(res, 200, { service: 'workbuddy-openai', version: '0.6.3' }); return; }
+      if (req.method === 'GET' && path === '/health') { json(res, 200, { service: 'workbuddy-openai', version: '0.6.4' }); return; }
       if (!quotaSession && req.headers['sec-fetch-site'] === 'cross-site') throw new BridgeError('跨站请求已拦截。', 403);
       const cookieName = `wb_openai_${actualPort}`;
       if (req.method === 'POST' && path === '/bridge/connect') {

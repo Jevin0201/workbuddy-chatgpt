@@ -1,6 +1,6 @@
 {
   "name": "workbuddy-chatgpt",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "private": true,
   "type": "module",
   "description": "Standalone ChatGPT account connector for WorkBuddy",
