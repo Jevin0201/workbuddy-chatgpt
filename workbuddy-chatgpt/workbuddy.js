@@ -37,7 +37,7 @@ export async function syncModels({ selections, catalog, token, port, target = co
   const owned = model => [endpoint, 'http://127.0.0.1:51379/v1/chat/completions'].includes(model.url) && (model.openaiSubscription === true || model.dshBridge === true);
   const superseded = model => model.dshBridge === true && model.url === 'http://127.0.0.1:51380/v1/chat/completions' && catalog.models.some(current => current.id === model.id);
   const removed = models.filter(owned).map(model => model.id);
-  const entries = selected.map(({ model, effort, enabled }) => ({
+  const entries = selected.filter(item => item.enabled).map(({ model, effort, enabled }) => ({
     id: modelAlias(model.id, effort),
     name: `${(model.name || model.id).replace(/^(GPT-\d+(?:\.\d+)?)-(Sol|Astra|Terra|Luna)$/i, '$1 $2')}${effort ? ` · ${model.reasoning.efforts.find(item => item.id === effort)?.name || effort}` : ''}`,
     vendor: 'custom', url: endpoint, apiKey: token,
@@ -57,6 +57,10 @@ export async function syncModels({ selections, catalog, token, port, target = co
   }
   await mkdir(dirname(target), { recursive: true });
   const serialized = JSON.stringify(next, null, 2) + '\n';
+  const preferenceFile = target + '.chatgpt-preferences.json';
+  const preferenceTemporary = preferenceFile + '.' + randomUUID() + '.tmp';
+  await writeFile(preferenceTemporary, JSON.stringify(selected.map(item => ({ id: item.model.id, enabled: item.enabled }))), { flag: 'wx', mode: 0o600 });
+  await rename(preferenceTemporary, preferenceFile);
   let backup;
   if (original === serialized) return { saved: true, count: entries.length, unchanged: true };
   if (original === undefined) await writeFile(target, serialized, { flag: 'wx', mode: 0o600 });

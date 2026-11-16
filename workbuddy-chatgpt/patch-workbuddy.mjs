@@ -72,6 +72,41 @@ export function transformSource(source) {
   const button = '(0,Q.jsx)(k,{variant:`secondary`,size:`medium`,className:`models-settings-panel__add-button`,"data-workbuddy-chatgpt":`' + MARKER + '`,onClick:()=>$(' + JSON.stringify(EXPECTED.url) + '),children:`登录ChatGPT`}),';
   return source.slice(0, start) + source.slice(start, end).replace(ANCHOR, ANCHOR.replace('children:R?', 'children:[') + button + 'R?') + '})})]})]}),te?' + source.slice(end + CLOSE.length);
 }
+export function quotaWidgetBootstrap() {
+  if (typeof document === 'undefined' || window.__workbuddyQuotaInstalled) return;
+  window.__workbuddyQuotaInstalled = true;
+  const frame = document.createElement('iframe');
+  frame.id = 'workbuddy-chatgpt-quota';
+  frame.title = 'ChatGPT 额度';
+  frame.setAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
+  frame.src = 'http://127.0.0.1:43187/usage-widget';
+  frame.style.cssText = 'position:fixed;width:94px;height:42px;border:0;background:transparent;z-index:9999;color-scheme:light;display:none';
+  let selected = false;
+  const update = () => {
+    const bounds = document.querySelector('.conversation-list-footer')?.getBoundingClientRect();
+    frame.style.display = selected && bounds?.width > 150 ? 'block' : 'none';
+    if (bounds) {
+      frame.style.left = Math.round(bounds.left + Math.min(100, bounds.width * .36)) + 'px';
+      frame.style.bottom = Math.max(0, window.innerHeight - bounds.bottom + (bounds.height - 42) / 2) + 'px';
+    }
+    if (document.body && !frame.isConnected) document.body.append(frame);
+  };
+  window.addEventListener('workbuddy-chatgpt-model', event => {
+    selected = /^(?:custom-local:)?openai:/.test(event.detail || '');
+    requestAnimationFrame(update);
+  });
+  window.addEventListener('message', event => {
+    if (!['null', 'http://127.0.0.1:43187'].includes(event.origin) || event.source !== frame.contentWindow || event.data?.type !== 'workbuddy-chatgpt-quota-size') return;
+    frame.style.width = event.data.open ? '312px' : '94px';
+    frame.style.height = event.data.open ? '420px' : '42px';
+    update();
+  });
+  window.addEventListener('resize', update);
+  document.addEventListener('pointerdown', () => frame.contentWindow?.postMessage({ type: 'workbuddy-chatgpt-quota-close' }, '*'));
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') frame.contentWindow?.postMessage({ type: 'workbuddy-chatgpt-quota-close' }, '*'); });
+  const attach = () => { new MutationObserver(update).observe(document.body, { childList: true, subtree: true }); update(); };
+  if (document.body) attach(); else document.addEventListener('DOMContentLoaded', attach, { once: true });
+}
 export const DISPLAY_MEMBER = 'renderer/assets/contexts-Cfdc2AZw.js';
 export function transformModelDisplay(source) {
   const anchor = 'function getModelDisplayName(e,t){';
@@ -94,7 +129,7 @@ export function buildPatchedArchive(original) {
   target.integrity = integrity(replacement, target.integrity?.blockSize ?? 4194304);
   const displayBytes = memberBytes(original, parsed, DISPLAY_MEMBER);
   if (sha256(displayBytes) !== '77f7314eea73165cf4f9a8f86430a76c3a7bd6822b3d134bc2946d75f9911851') throw Error('Model display renderer changed');
-  const displayReplacement = Buffer.from(transformModelDisplay(displayBytes.toString('utf8')), 'utf8');
+  const displayReplacement = Buffer.from(transformModelDisplay(displayBytes.toString('utf8')) + '\n;(' + quotaWidgetBootstrap.toString() + ')();', 'utf8');
   const displayTarget = member(header, DISPLAY_MEMBER);
   displayTarget.offset = String(original.length - parsed.payloadStart + replacement.length);
   displayTarget.size = displayReplacement.length;

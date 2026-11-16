@@ -10,13 +10,19 @@ if (!(Test-Path -LiteralPath $node)) { throw '安装文件不完整，请重新�
 if (@(Get-Process -Name WorkBuddy -ErrorAction SilentlyContinue).Count) { throw '请先退出 WorkBuddy，再点击重试。' }
 $archive = Join-Path $WorkBuddyRoot 'resources\app.asar'
 $exe = Join-Path $WorkBuddyRoot 'WorkBuddy.exe'
+$patchName = 'patch-workbuddy.mjs'
+$workbuddyVersion = '5.9.3'
+if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLower() -eq '42e3c7cf05a21e1ab491911fa386583956dab3ddf358ba7004d75dd559eba27f' -or (Test-Path -LiteralPath ($archive + '.workbuddy-chatgpt-5.11.3.json'))) {
+    $patchName = 'patch-workbuddy-511.mjs'
+    $workbuddyVersion = '5.11.3'
+}
 $legacyReceipt = $archive + '.dsh-codex-bridge-5.9.3.json'
-$ownReceipt = $archive + '.workbuddy-chatgpt-5.9.3.json'
+$ownReceipt = $archive + '.workbuddy-chatgpt-' + $workbuddyVersion + '.json'
 $upgrade = $false
 $migrate = $false
 # The initial probe may legitimately reject an already-patched installation.
 $ErrorActionPreference = 'Continue'
-& $node (Join-Path $PSScriptRoot 'patch-workbuddy.mjs') --dry-run --archive $archive --exe $exe
+& $node (Join-Path $PSScriptRoot $patchName) --dry-run --archive $archive --exe $exe
 $probeExitCode = $LASTEXITCODE
 $ErrorActionPreference = 'Stop'
 if ($probeExitCode -ne 0) {
@@ -35,7 +41,7 @@ if ($probeExitCode -ne 0) {
     try {
         Copy-Item -LiteralPath ($archive + '.dsh-codex-bridge-5.9.3.original') -Destination (Join-Path $preview 'resources\app.asar')
         Copy-Item -LiteralPath ($exe + '.dsh-codex-bridge-5.9.3.original') -Destination (Join-Path $preview 'WorkBuddy.exe')
-        & $node (Join-Path $PSScriptRoot 'patch-workbuddy.mjs') --dry-run --archive (Join-Path $preview 'resources\app.asar') --exe (Join-Path $preview 'WorkBuddy.exe')
+        & $node (Join-Path $PSScriptRoot $patchName) --dry-run --archive (Join-Path $preview 'resources\app.asar') --exe (Join-Path $preview 'WorkBuddy.exe')
         if ($LASTEXITCODE -ne 0) { throw '原始备份校验失败，安装已停止。' }
     } finally {
         $resolvedPreview = [IO.Path]::GetFullPath($preview)
@@ -59,7 +65,7 @@ Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object { $_.Ex
 Get-ChildItem -LiteralPath $PSScriptRoot | Where-Object { $_.Name -notin @('test','settings.json') } | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $target -Recurse -Force }
 Set-InstallProgress 60 '正在安装登录入口…'
 if ($upgrade) {
-    & $node (Join-Path $target 'patch-workbuddy.mjs') --revert --confirm-workbuddy-closed --archive $archive --exe $exe
+    & $node (Join-Path $target $patchName) --revert --confirm-workbuddy-closed --archive $archive --exe $exe
     if ($LASTEXITCODE -ne 0) { throw '旧版本还原失败，升级已停止。' }
     Move-Item -LiteralPath $ownReceipt -Destination ($ownReceipt + '.previous-' + [guid]::NewGuid())
 }
@@ -67,7 +73,7 @@ if ($migrate) {
     & $node (Join-Path $target 'legacy-patch.mjs') --revert --confirm-workbuddy-closed --archive $archive --exe $exe
     if ($LASTEXITCODE -ne 0) { throw '旧版本还原失败，安装已停止。' }
 }
-& $node (Join-Path $target 'patch-workbuddy.mjs') --apply --confirm-workbuddy-closed --accept-signature-change --archive $archive --exe $exe
+& $node (Join-Path $target $patchName) --apply --confirm-workbuddy-closed --accept-signature-change --archive $archive --exe $exe
 if ($LASTEXITCODE -ne 0) {
     if ($migrate) { & $node (Join-Path $target 'legacy-patch.mjs') --apply --confirm-workbuddy-closed --accept-signature-change --archive $archive --exe $exe }
     throw '登录入口安装失败，请重试。'
@@ -81,7 +87,7 @@ $service = Join-Path $target 'service.js'
 $vbs = 'CreateObject("WScript.Shell").Run """' + $nodeInstalled + '"" ""' + $service + '""", 0, False'
 [IO.File]::WriteAllText($launcher, $vbs)
 New-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name WorkBuddyChatGPT -Value ('wscript.exe "' + $launcher + '"') -PropertyType String -Force | Out-Null
-@{ WorkBuddyRoot=$WorkBuddyRoot } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $target 'installation.json') -Encoding UTF8
+@{ WorkBuddyRoot=$WorkBuddyRoot; PatchName=$patchName } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $target 'installation.json') -Encoding UTF8
 Set-InstallProgress 90 '正在启动连接服务…'
 Start-Process -FilePath wscript.exe -ArgumentList ('"' + $launcher + '"') -WindowStyle Hidden
 Write-Host 'Installed. Open WorkBuddy > Settings > Models > Login ChatGPT.'

@@ -15,3 +15,5 @@ workbuddy-chatgpt/settings.json
 workbuddy-chatgpt/*.log
 workbuddy-chatgpt/.bridge-key
 workbuddy-chatgpt/*.dpapi
+
+!downloads/WorkBuddy-ChatGPT-Setup-0.6.3-preview.exe

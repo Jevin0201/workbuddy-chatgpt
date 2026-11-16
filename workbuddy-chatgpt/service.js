@@ -12,6 +12,7 @@ import { createCurlTokenFetch } from './curl-token.js';
 import { createOfficialApi } from './official-api.js';
 import { createEngine } from './engine.js';
 import { createServerBridge } from './server.js';
+import { createQuotaReader } from './quota.js';
 
 export async function startService({ directory = join(process.env.LOCALAPPDATA, 'WorkBuddyChatGPT'), proxyUrl = '', port = 43187 } = {}) {
   await mkdir(directory, { recursive: true });
@@ -21,9 +22,11 @@ export async function startService({ directory = join(process.env.LOCALAPPDATA, 
   catch (error) { if (error.code !== 'ENOENT') throw error; token = randomBytes(32).toString('hex'); await writeFile(keyFile, token, { flag: 'wx', mode: 0o600 }); }
   if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('Invalid local key');
   const transport = createScopedTransport({ proxyUrl, ProxyAgent, fetchImpl: fetch, tokenFetchImpl: proxyUrl ? createCurlTokenFetch({ proxyUrl }) : undefined });
-  const oauth = createRedirectOAuth({ fetchImpl: transport.fetch, returnUrl: `http://127.0.0.1:${port}/?auth_return=1` });
-  const auth = createAccountAuth({ credentials: createCredentialStore(directory) }, { oauth });
-  const api = createOfficialApi({ auth, fetchImpl: transport.fetch });
+  const oauth = createRedirectOAuth({ subscription: true, fetchImpl: transport.fetch, returnUrl: `http://127.0.0.1:${port}/?auth_return=1` });
+  const credentials = createCredentialStore(directory);
+  const auth = createAccountAuth({ credentials }, { oauth });
+  const quota = createQuotaReader({ auth, fetchImpl: transport.fetch });
+  const api = createOfficialApi({ auth, fetchImpl: transport.fetch, quotaProvider: (signal, force) => quota.read(signal, force) });
   const bridge = createServerBridge({ auth, api, engine: createEngine({ api }), token, port });
   try { bridge.server.listen(port, '127.0.0.1'); await once(bridge.server, 'listening'); }
   catch (error) { await bridge.close(); await auth.close(); await transport.close(); throw error; }

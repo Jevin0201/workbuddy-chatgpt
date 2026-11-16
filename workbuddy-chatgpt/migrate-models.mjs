@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { configPath, parseAlias, syncModels } from './workbuddy.js';
 
 export async function migrateModels(target = configPath()) {
+  try { await readFile(target + '.chatgpt-preferences.json'); return; }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
   let document;
   try { document = JSON.parse(await readFile(target, 'utf8')); }
   catch (error) { if (error.code === 'ENOENT') return; throw error; }

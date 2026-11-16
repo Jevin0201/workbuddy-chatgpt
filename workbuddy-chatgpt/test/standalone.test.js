@@ -28,9 +28,9 @@ test('models retain native reasoning capabilities, stable identity and disabled 
   try {
     const target = join(directory, 'models.json');
     const catalog = { models: [{ id: 'fixture', name: 'Fixture', reasoning: { efforts: [{ id: 'low' }, { id: 'high' }], defaultEffort: 'high' } }] };
-    await syncModels({ selections: [{ id: 'fixture', enabled: false }], catalog, token: 'fixture-key', port: 43187, target });
+    await syncModels({ selections: [{ id: 'fixture', enabled: true }], catalog, token: 'fixture-key', port: 43187, target });
     const [entry] = JSON.parse(await readFile(target, 'utf8'));
-    assert.equal(entry.disabled, true);
+    assert.equal(entry.disabled, false);
     assert.equal(entry.id, 'openai:fixture:default');
     assert.deepEqual(entry.reasoning, { supportedEfforts: ['low', 'high'], defaultEffort: 'high' });
     await syncModels({ selections: [], catalog, token: 'fixture-key', port: 43187, target });
@@ -51,7 +51,7 @@ test('standalone service starts with no DSH and restricts inference to its beare
   const service = await startService({ directory, port: 51389 });
   try {
     const base = `http://127.0.0.1:${service.port}`;
-    assert.equal((await (await fetch(base + '/health')).json()).version, '0.4.3');
+    assert.equal((await (await fetch(base + '/health')).json()).version, '0.6.3');
     assert.equal((await fetch(base + '/v1/models')).status, 401);
     const connected = await fetch(base + '/bridge/connect', { method: 'POST', headers: { Origin: base, 'Content-Type': 'application/json', 'X-Bridge-Desktop': '1' }, body: '{}' });
     assert.equal(connected.status, 200);

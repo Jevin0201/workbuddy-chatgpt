@@ -3,7 +3,8 @@ if (@(Get-Process -Name WorkBuddy -ErrorAction SilentlyContinue).Count) { throw 
 $installation = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'installation.json') -Raw | ConvertFrom-Json
 $archive = Join-Path $installation.WorkBuddyRoot 'resources\app.asar'
 $exe = Join-Path $installation.WorkBuddyRoot 'WorkBuddy.exe'
-& (Join-Path $PSScriptRoot 'node.exe') (Join-Path $PSScriptRoot 'patch-workbuddy.mjs') --revert --confirm-workbuddy-closed --archive $archive --exe $exe
+$patchName = if ($installation.PatchName) { $installation.PatchName } else { 'patch-workbuddy.mjs' }
+& (Join-Path $PSScriptRoot 'node.exe') (Join-Path $PSScriptRoot $patchName) --revert --confirm-workbuddy-closed --archive $archive --exe $exe
 if ($LASTEXITCODE -ne 0) { throw 'Restore failed; startup has been retained.' }
 Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name WorkBuddyChatGPT -ErrorAction SilentlyContinue
 $ownNode = Join-Path $PSScriptRoot 'node.exe'

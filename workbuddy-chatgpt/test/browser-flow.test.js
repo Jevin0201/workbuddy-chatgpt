@@ -27,7 +27,7 @@ test('Chrome page loads account models, toggles persist on reload, inference pas
     await page.getByText('已保存到 WorkBuddy。', { exact: true }).waitFor();
     await page.getByRole('checkbox').uncheck();
     await page.getByText('已保存到 WorkBuddy。', { exact: true }).waitFor();
-    assert.equal(JSON.parse(await readFile(target, 'utf8'))[0].disabled, true);
+    assert.deepEqual(JSON.parse(await readFile(target, 'utf8')), []);
     await page.reload();
     await page.getByText('已保存到 WorkBuddy。', { exact: true }).waitFor();
     assert.equal(await page.getByRole('checkbox').isChecked(), false);
@@ -43,6 +43,11 @@ test('Chrome page loads account models, toggles persist on reload, inference pas
     const evidence = new URL('../../outputs/test-evidence/', import.meta.url);
     await mkdir(evidence, { recursive: true });
     await page.screenshot({ path: join(fileURLToPath(evidence), 'model-switches.png'), fullPage: true });
+    const saved = await readFile(target, 'utf8');
+    api.models = async () => ({ models: [] });
+    await page.reload();
+    await page.getByText('模型目录暂时为空，请稍后刷新。已有模型配置已保留。', { exact: true }).waitFor();
+    assert.equal(await readFile(target, 'utf8'), saved);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); await bridge.close(); await rm(directory, { recursive: true, force: true }); }
 });

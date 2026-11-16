@@ -1,6 +1,8 @@
 import { BridgeError } from './errors.js';
 
 const ROUTES = new Map([
+  ['https://chatgpt.com/backend-api/codex/models?client_version=0.169.0-alpha.11.1', 'GET'],
+  ['https://chatgpt.com/backend-api/codex/responses', 'POST'],
   ['https://auth.openai.com/api/accounts/oauth/token', 'POST'],
   ['https://auth.openai.com/oauth/token', 'POST'],
   ['https://api.openai.com/v1/models', 'GET'],
@@ -32,7 +34,7 @@ export function createScopedTransport({ proxyUrl = '', ProxyAgent, fetchImpl = g
       try {
         if (typeof input !== 'string' && !(input instanceof URL)) throw new Error();
         url = new URL(input);
-        if (url.username || url.password || url.href.includes('?') || url.href.includes('#') || !ROUTES.has(url.href)) throw new Error();
+        if (url.username || url.password || url.href.includes('#') || !ROUTES.has(url.href)) throw new Error();
         const method = init.method ?? 'GET';
         if (method !== ROUTES.get(url.href)) throw new Error();
       } catch {

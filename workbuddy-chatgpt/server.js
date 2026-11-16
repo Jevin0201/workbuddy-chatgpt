@@ -6,6 +6,7 @@ import { modelAlias, syncModels, configPath, parseAlias } from './workbuddy.js';
 import { readFile } from 'node:fs/promises';
 import { PROVIDER } from './engine.js';
 import { page } from './page.js';
+import { usagePage } from './usage-page.js';
 
 const json = (res, status, body) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(body)); };
 const errorBody = error => ({ error: { code: error instanceof BridgeError ? error.code : 'internal_error', message: error instanceof BridgeError ? error.message : '请求未完成，请检查本机服务或重新登录。' } });
@@ -27,7 +28,7 @@ async function send(res, value) {
   }
 }
 export function createServerBridge({ ctx, auth, api, engine, token, port = 51380, workbuddyTarget }) {
-  const sessions = new Map(), active = new Set();
+  const sessions = new Map(), quotaSessions = new Map(), active = new Set();
   let syncTail = Promise.resolve();
   function establishSession(res, actualPort) {
     for (const [key, expiry] of sessions) if (expiry <= Date.now()) sessions.delete(key);
@@ -45,7 +46,26 @@ export function createServerBridge({ ctx, auth, api, engine, token, port = 51380
       const actualPort = server.address()?.port ?? port;
       if (![`127.0.0.1:${actualPort}`, `localhost:${actualPort}`].includes(req.headers.host)) throw new BridgeError('本机地址校验失败。', 403);
       const origin = `http://${req.headers.host}`, url = new URL(req.url, origin), path = url.pathname;
-      if (req.headers.origin !== undefined && req.headers.origin !== origin) throw new BridgeError('跨站请求已拦截。', 403);
+      if (req.method === 'GET' && path === '/usage-widget') {
+        for (const [key, expiry] of quotaSessions) if (expiry <= Date.now()) quotaSessions.delete(key);
+        if (quotaSessions.size >= 32) quotaSessions.delete(quotaSessions.keys().next().value);
+        const quotaSession = randomBytes(32).toString('hex');
+        quotaSessions.set(quotaSession, Date.now() + 7200000);
+        res.setHeader('Content-Security-Policy', `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src ${origin}; base-uri 'none'; frame-ancestors file: 'self'; form-action 'self'`);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(usagePage.replace('__QUOTA_SESSION__', quotaSession)); return;
+      }
+      // WorkBuddy's default-session hook strips Origin on 127.0.0.1 requests.
+      // The sandbox still checks CORS against its opaque (null) origin.
+      const opaqueWidgetOrigin = req.headers.origin === 'null' || req.headers.origin === undefined;
+      if (req.method === 'OPTIONS' && path === '/bridge/usage' && opaqueWidgetOrigin && req.headers['access-control-request-method'] === 'GET' && String(req.headers['access-control-request-headers']).toLowerCase() === 'x-quota-session') {
+        res.writeHead(204, { 'Access-Control-Allow-Origin': 'null', 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Allow-Headers': 'X-Quota-Session', Vary: 'Origin' }); res.end(); return;
+      }
+      const quotaSession = req.method === 'GET' && path === '/bridge/usage' && (quotaSessions.get(req.headers['x-quota-session']) ?? 0) > Date.now();
+      if (quotaSession) quotaSessions.set(req.headers['x-quota-session'], Date.now() + 7200000);
+      const quotaRequest = req.method === 'GET' && path === '/bridge/usage' && opaqueWidgetOrigin && /^[a-f0-9]{64}$/.test(String(req.headers['x-quota-session'] || ''));
+      if (quotaRequest) { res.setHeader('Access-Control-Allow-Origin', 'null'); res.setHeader('Vary', 'Origin'); }
+      if (quotaRequest && !quotaSession) throw new BridgeError('额度连接已过期，请重新连接。', 401, 'authentication_required');
+      if (!quotaSession && req.headers.origin !== undefined && req.headers.origin !== origin) throw new BridgeError('跨站请求已拦截。', 403);
       if (req.method === 'GET' && (path === '/' || path === '/login')) {
         const status = await auth.status();
         const autoLogin = url.searchParams.get('autostart') === '1' && url.searchParams.get('auth_return') !== '1' && !status.configured;
@@ -53,18 +73,25 @@ export function createServerBridge({ ctx, auth, api, engine, token, port = 51380
           if (req.headers['sec-fetch-dest'] && req.headers['sec-fetch-dest'] !== 'document') throw new BridgeError('请通过浏览器页面开始授权。', 403);
           if (status.state !== 'running') await auth.start();
           const target = new URL(await auth.authorizationUrl({ signal: controller.signal }));
-          if (target.origin !== 'https://auth.openai.com' || target.pathname !== '/api/accounts/authorize' || target.username || target.password || target.hash) throw new BridgeError('授权地址校验失败。', 502);
+          if (target.origin !== 'https://auth.openai.com' || !['/api/accounts/authorize', '/oauth/authorize'].includes(target.pathname) || target.username || target.password || target.hash) throw new BridgeError('授权地址校验失败。', 502);
           establishSession(res, actualPort);
           res.writeHead(303, { Location: target.href }); res.end(); return;
         }
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(page); return;
       }
-      if (req.method === 'GET' && path === '/health') { json(res, 200, { service: 'workbuddy-openai', version: '0.4.3' }); return; }
-      if (req.headers['sec-fetch-site'] === 'cross-site') throw new BridgeError('跨站请求已拦截。', 403);
+      if (req.method === 'GET' && path === '/health') { json(res, 200, { service: 'workbuddy-openai', version: '0.6.3' }); return; }
+      if (!quotaSession && req.headers['sec-fetch-site'] === 'cross-site') throw new BridgeError('跨站请求已拦截。', 403);
       const cookieName = `wb_openai_${actualPort}`;
       if (req.method === 'POST' && path === '/bridge/connect') {
         if (req.headers.origin !== origin || req.headers['x-bridge-desktop'] !== '1') throw new BridgeError('请从本机页面建立连接。', 403);
-        await readBody(req);
+        const connection = await readBody(req);
+        if (connection.widget === true) {
+          for (const [key, expiry] of quotaSessions) if (expiry <= Date.now()) quotaSessions.delete(key);
+          if (quotaSessions.size >= 32) quotaSessions.delete(quotaSessions.keys().next().value);
+          const quotaSession = randomBytes(32).toString('hex');
+          quotaSessions.set(quotaSession, Date.now() + 7200000);
+          json(res, 200, { connected: true, quotaSession }); return;
+        }
         establishSession(res, actualPort);
         json(res, 200, { connected: true }); return;
       }
@@ -72,9 +99,14 @@ export function createServerBridge({ ctx, auth, api, engine, token, port = 51380
       const bearer = supplied.length === expected.length && timingSafeEqual(supplied, expected);
       const cookie = String(req.headers.cookie || '').split(';').map(value => value.trim()).find(value => value.startsWith(cookieName + '='))?.slice(cookieName.length + 1);
       const management = path.startsWith('/bridge/') || path.startsWith('/auth/') || path === '/workbuddy/sync';
-      if (!bearer && !(management && cookie && (sessions.get(cookie) ?? 0) > Date.now())) throw new BridgeError('本地连接已过期，请刷新页面重新连接。', 401, 'authentication_required');
+      if (!bearer && !quotaSession && !(management && cookie && (sessions.get(cookie) ?? 0) > Date.now())) throw new BridgeError('本地连接已过期，请刷新页面重新连接。', 401, 'authentication_required');
       if (req.method === 'GET' && path === '/auth/status') { json(res, 200, await auth.status()); return; }
       if (req.method === 'GET' && path === '/bridge/preferences') {
+        try {
+          const models = JSON.parse(await readFile((workbuddyTarget || configPath()) + '.chatgpt-preferences.json', 'utf8'));
+          if (!Array.isArray(models)) throw Error('Invalid model preferences');
+          json(res, 200, { models }); return;
+        } catch (error) { if (error.code !== 'ENOENT') throw error; }
         let document;
         try { document = JSON.parse(await readFile(workbuddyTarget || configPath(), 'utf8')); }
         catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -125,7 +157,7 @@ export function createServerBridge({ ctx, auth, api, engine, token, port = 51380
   server.requestTimeout = 60000; server.headersTimeout = 15000; server.keepAliveTimeout = 5000;
   Object.defineProperty(server, Symbol.for('dsh.workbuddy.bridge'), { value: 'openai-v3' });
   return { server, async close() {
-    sessions.clear(); for (const controller of active) controller.abort(); await auth.close();
+    sessions.clear(); quotaSessions.clear(); for (const controller of active) controller.abort(); await auth.close();
     server.closeAllConnections(); if (server.listening) await new Promise(resolve => server.close(resolve)); await syncTail;
   } };
 }

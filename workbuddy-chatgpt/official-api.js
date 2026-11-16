@@ -117,6 +117,20 @@ export function createOfficialApi({ auth, fetchImpl = globalThis.fetch, now = Da
       for (const [key, value] of Object.entries(options.headers ?? {})) headers.set(key, value);
       headers.delete('Authorization');
       checkAbort(signal);
+      const context = await auth.accountContext?.();
+      if (context?.mode === 'subscription') {
+        if (context.accountId) headers.set('chatgpt-account-id', context.accountId);
+        if (url === MODELS_URL) url = 'https://chatgpt.com/backend-api/codex/models?client_version=0.169.0-alpha.11.1';
+        if (url === RESPONSES_URL) {
+          url = 'https://chatgpt.com/backend-api/codex/responses';
+          const body = JSON.parse(options.body);
+          body.instructions ??= '';
+          // The subscription endpoint manages sampling and output limits itself.
+          delete body.max_output_tokens; delete body.temperature; delete body.top_p;
+          if (body.tools?.[0]?.type === 'namespace') body.tools = body.tools.flatMap(tool => tool.tools ?? [tool]);
+          options = { ...options, body: JSON.stringify(body) };
+        }
+      }
       response = await fetchImpl(url, { ...options, signal, redirect: 'error', headers: { ...Object.fromEntries(headers), Authorization: `Bearer ${token}` } });
     }
     catch { checkAbort(signal); throw failure('OpenAI request failed'); }
@@ -139,12 +153,12 @@ export function createOfficialApi({ auth, fetchImpl = globalThis.fetch, now = Da
       cached = { models, source: 'account', fetchedAt: new Date(cachedAt).toISOString(), warnings: [] };
       return structuredClone(cached);
     },
-    async usage({ signal } = {}) {
+    async usage({ signal, force = false } = {}) {
       checkAbort(signal);
       // A separate provider must own its own authorized grant and sanitize its result.
       if (typeof quotaProvider === 'function') {
         try {
-          const result = await quotaProvider(signal);
+          const result = await quotaProvider(signal, force);
           checkAbort(signal);
           if (object(result) && typeof result.available === 'boolean') return structuredClone(result);
         } catch { checkAbort(signal); }

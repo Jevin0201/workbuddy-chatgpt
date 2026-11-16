@@ -61,19 +61,19 @@ async function tokenJSON(response) {
     catch { throw stageError('AUTH_GRANT_SCHEMA'); }
   } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
-function normalizeGrant(token, clientId, previous) {
+function normalizeGrant(token, clientId, previous, subscription = false) {
   if (!token || typeof token !== 'object' || Array.isArray(token) ||
       ![token.access_token, token.refresh_token, ...(previous ? [] : [token.id_token])].every(value => typeof value === 'string' && value.trim()) ||
       !Number.isFinite(token.expires_in) || token.expires_in <= 0 || !Number.isFinite(Date.now() + token.expires_in * 1000)) throw stageError('AUTH_GRANT_SCHEMA');
   const scopes = token.scope === undefined && previous ? previous.scopes :
     typeof token.scope === 'string' ? token.scope.trim().split(/\s+/) : [];
-  if (!Array.isArray(scopes) || !scopes.includes('chatgpt.tokens.use.direct')) throw stageError('AUTH_SCOPE_MISSING');
-  return { ...previous, type: 'oauth', access: token.access_token, refresh: token.refresh_token, clientId, scopes, expires: Date.now() + token.expires_in * 1000 - 180000 };
+  if (!Array.isArray(scopes) || (!subscription && !scopes.includes('chatgpt.tokens.use.direct'))) throw stageError('AUTH_SCOPE_MISSING');
+  return { ...previous, ...(subscription ? { authMode: 'subscription' } : {}), type: 'oauth', access: token.access_token, refresh: token.refresh_token, clientId, scopes, expires: Date.now() + token.expires_in * 1000 - 180000 };
 }
-async function exchange(fetchImpl, body, signal) {
+async function exchange(fetchImpl, body, signal, subscription = false) {
   const deadline = signal ? AbortSignal.any([signal, AbortSignal.timeout(45000)]) : AbortSignal.timeout(45000);
   try {
-    const response = await fetchImpl(TOKEN, {
+    const response = await fetchImpl(subscription ? 'https://auth.openai.com/oauth/token' : TOKEN, {
       method: 'POST', redirect: 'error', signal: deadline,
       headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams(body),
@@ -86,16 +86,16 @@ async function exchange(fetchImpl, body, signal) {
   }
 }
 
-export function createRedirectOAuth({ refresh, returnUrl = 'http://127.0.0.1:51380/?auth_return=1', callbackPort = 1455, fetchImpl = globalThis.fetch } = {}) {
+export function createRedirectOAuth({ refresh, returnUrl = 'http://127.0.0.1:51380/?auth_return=1', callbackPort = 1455, subscription = false, fetchImpl = globalThis.fetch } = {}) {
   const destination = new URL(returnUrl);
   if (destination.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(destination.hostname) || destination.username || destination.password || destination.pathname !== '/' || destination.hash || [...destination.searchParams].some(([key, value]) => key !== 'auth_return' || value !== '1')) throw new Error('Invalid fixed OAuth return destination');
   if (!Number.isInteger(callbackPort) || callbackPort < 0 || callbackPort > 65535 || typeof fetchImpl !== 'function' || (refresh !== undefined && typeof refresh !== 'function')) throw new Error('Invalid OAuth configuration');
   return {
     async refresh(credential, signal) {
       signal?.throwIfAborted();
-      const token = await exchange(fetchImpl, { grant_type: 'refresh_token', client_id: credential.clientId, refresh_token: credential.refresh, resource: RESOURCE }, signal);
+      const token = await exchange(fetchImpl, { grant_type: 'refresh_token', client_id: credential.clientId, refresh_token: credential.refresh, ...(credential.authMode === 'subscription' ? {} : { resource: RESOURCE }) }, signal, credential.authMode === 'subscription');
       signal?.throwIfAborted();
-      return normalizeGrant(token, credential.clientId, credential);
+      return normalizeGrant(token, credential.clientId, credential, credential.authMode === 'subscription');
     },
     async login(interaction, options) {
       const deviceId = options?.getDeviceId?.();
@@ -126,15 +126,15 @@ export function createRedirectOAuth({ refresh, returnUrl = 'http://127.0.0.1:513
           redirect(res, destination.href);
           const error = new Error('OpenAI authorization was declined'); error.code = 'AUTH_DENIED'; rejectResult(error); return;
         }
-        const code = callback.searchParams.get('code'), clientId = callback.searchParams.get('client_id');
+        const code = callback.searchParams.get('code'), clientId = subscription ? 'app_EMoamEEZ73f0CkXaXp7hrann' : callback.searchParams.get('client_id');
         if (!code || code.length > 8192 || !clientId || !/^[a-zA-Z0-9._:-]{1,256}$/.test(clientId) || clientId === 'dynamic_agent_client') { reply(res, 400, '登录回调信息不完整，请重新授权。'); return; }
         processing = true;
         try {
           signal.throwIfAborted();
           interaction.notify({ type: 'progress', message: '正在完成账号授权' });
-          const token = await exchange(fetchImpl, { grant_type: 'authorization_code', client_id: clientId, code, code_verifier: verifier, redirect_uri: redirectUri, resource: RESOURCE }, signal);
+          const token = await exchange(fetchImpl, { grant_type: 'authorization_code', client_id: clientId, code, code_verifier: verifier, redirect_uri: redirectUri, ...(subscription ? {} : { resource: RESOURCE }) }, signal, subscription);
           signal.throwIfAborted();
-          const payload = normalizeGrant(token, clientId);
+          const payload = normalizeGrant(token, clientId, undefined, subscription);
           settled = true;
           // The return page polls the committed account state; no credential enters the URL.
           redirect(res, destination.href); resolveResult(payload);
@@ -156,8 +156,9 @@ export function createRedirectOAuth({ refresh, returnUrl = 'http://127.0.0.1:513
         signal.addEventListener('abort', abort, { once: true });
         if (signal.aborted) abort();
         signal.throwIfAborted();
-        const url = new URL(AUTHORIZE);
+        const url = new URL(subscription ? 'https://auth.openai.com/oauth/authorize' : AUTHORIZE);
         url.search = new URLSearchParams({ client_id: 'dynamic_agent_client', agent_name_hint: options?.agentName || 'WorkBuddy OpenAI Bridge', ext_agent_host_id: `urn:uuid:${deviceId.toLowerCase()}`, response_type: 'code', redirect_uri: redirectUri, resource: RESOURCE, scope: SCOPE, state, nonce, code_challenge: challenge, code_challenge_method: 'S256' }).toString();
+        if (subscription) { url.searchParams.set('client_id', 'app_EMoamEEZ73f0CkXaXp7hrann'); url.searchParams.set('scope', 'openid profile email offline_access'); for (const key of ['resource','agent_name_hint','ext_agent_host_id']) url.searchParams.delete(key); url.searchParams.set('codex_cli_simplified_flow','true'); }
         interaction.notify({ type: 'auth_url', url: url.href });
         return await result;
       } finally {

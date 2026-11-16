@@ -12,7 +12,7 @@ function grant(record) {
   return p?.type === 'oauth' && typeof p.access === 'string' && p.access.length > 0 &&
     typeof p.refresh === 'string' && p.refresh.length > 0 &&
     typeof p.clientId === 'string' && p.clientId.length > 0 &&
-    Number.isFinite(p.expires) && Array.isArray(p.scopes) && p.scopes.includes(SCOPE) ? p : undefined;
+    Number.isFinite(p.expires) && Array.isArray(p.scopes) && (p.scopes.includes(SCOPE) || p.authMode === 'subscription') ? p : undefined;
 }
 function sanitized(error) {
   const messages = {
@@ -227,5 +227,6 @@ export function createAccountAuth(ctx, { oauth, now = Date.now } = {}) {
     }
   }
   async function close() { closed = true; await cancel(); }
-  return { status, start, authorizationUrl, answer, cancel, accessToken, close };
+  async function accountContext() { const p = grant(await credentials.readRecord(ACCOUNT)); let accountId; try { accountId = JSON.parse(Buffer.from(p.access.split('.')[1], 'base64url'))['https://api.openai.com/auth']?.chatgpt_account_id; } catch {} return { mode: p?.authMode, accountId }; }
+  return { status, start, authorizationUrl, answer, cancel, accessToken, accountContext, close };
 }
